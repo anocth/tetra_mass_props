@@ -158,27 +158,6 @@ _PRECOMPUTED_DSHAPE_DXI_AT_QUAD_POINTS: Final[FloatArray] = np.array(
 
 
 # --------------------------------------
-# Jacobian
-# --------------------------------------
-def jacobian_at_point(coords: FloatArray, dN_at_point: FloatArray) -> FloatArray:
-    """
-    Compute the (3,3) Jacobian matrix mapping natural to global coordinates.
-
-    This function is kept for potential standalone use, but for volume/centroid
-    computation, Jacobian calculation is integrated into the combined function.
-
-    Args:
-        coords:  (10,3) array of global node coordinates.
-        dN_at_point: (10,3) array of shape function derivatives at the point.
-
-    Returns:
-        J:  (3,3) Jacobian matrix.
-    """
-    J = dN_at_point.T @ coords
-    return J
-
-
-# --------------------------------------
 # Volume & Centroid
 # --------------------------------------
 def compute_quadratic_tetra_volume_and_centroid(
