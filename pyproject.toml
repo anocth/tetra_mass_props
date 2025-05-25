@@ -1,0 +1,10 @@
+[project]
+name = "massproperty"
+version = "0.1.0"
+description = "Tetrahedral finite element mass properties calculator using Gaussian quadrature for exact volume and centroid computation"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "numpy>=2.2.6",
+    "pandas>=2.2.3",
+]
