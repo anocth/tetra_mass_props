@@ -10,38 +10,16 @@ from typing import Final, TypeAlias
 import numpy as np
 from numpy.typing import NDArray
 
-# --------------------------------------
-# Constants
-# --------------------------------------
 DTYPE_FLOAT: Final = np.float64
 FloatArray: TypeAlias = NDArray[np.float64]
-
-# Quadrature scheme constants for exact integration of quadratic geometry
-# 4-point symmetric rule (degree 2 exact)
-# Barycentric coordinates for quadrature points: L1, L2, L3, L4
-_QUAD_A: Final[float] = (5 + 3 * (5**0.5)) / 20
-_QUAD_B: Final[float] = (5 - (5**0.5)) / 20
-_QUAD_BARY_COORDS: Final[FloatArray] = np.array(
-    [
-        [_QUAD_A, _QUAD_B, _QUAD_B, _QUAD_B],
-        [_QUAD_B, _QUAD_A, _QUAD_B, _QUAD_B],
-        [_QUAD_B, _QUAD_B, _QUAD_A, _QUAD_B],
-        [_QUAD_B, _QUAD_B, _QUAD_B, _QUAD_A],
-    ],
-    dtype=DTYPE_FLOAT,
-)
-
-# Natural coordinates (xi, eta, zeta) for quadrature points, derived from barycentric (L2, L3, L4)
-TETRA_QUADRATURE_POINTS: Final[FloatArray] = _QUAD_BARY_COORDS[:, 1:4]
-TETRA_QUADRATURE_WEIGHTS: Final[FloatArray] = np.array(
-    [0.25, 0.25, 0.25, 0.25], dtype=DTYPE_FLOAT
-)
 
 
 # --------------------------------------
 # Shape functions
 # --------------------------------------
-def shape_functions(xi: float, eta: float, zeta: float) -> FloatArray:
+def _compute_tetrahedral_shape_functions(
+    xi: float, eta: float, zeta: float
+) -> FloatArray:
     """
     Compute the 10-node quadratic tetrahedral shape functions at given natural coordinates.
 
@@ -71,7 +49,9 @@ def shape_functions(xi: float, eta: float, zeta: float) -> FloatArray:
     return N
 
 
-def dshape_dxi(xi: float, eta: float, zeta: float) -> FloatArray:
+def _compute_tetrahedral_shape_derivatives(
+    xi: float, eta: float, zeta: float
+) -> FloatArray:
     """
     Compute derivatives of the 10-node quadratic tetrahedral shape functions w.r.t. natural coords.
 
@@ -89,108 +69,165 @@ def dshape_dxi(xi: float, eta: float, zeta: float) -> FloatArray:
     L4: Final = zeta
     dN = np.zeros((10, 3), dtype=DTYPE_FLOAT)
     # d/dxi, d/deta, d/dzeta
-    # N1 = L1(2L1-1)
-    for i_dir, dL1 in enumerate([-1.0, -1.0, -1.0]):
-        dN[0, i_dir] = dL1 * (2 * L1 - 1) + L1 * (2 * dL1)
-    # N2 = L2(2L2-1)
-    dN[1, 0] = (2 * L2 - 1) + L2 * 2  # dL2/dxi = 1
+    # N_i = L_i(2L_i-1) -> dN_i/dL_j = delta_ij * (4L_i - 1)
+    # dL1/dxi = -1, dL1/deta = -1, dL1/dzeta = -1
+    dN[0, :] = -1.0 * (4 * L1 - 1)  # dL1/dxi = -1, dL1/deta = -1, dL1/dzeta = -1
+    # N2 = L2 (2 L2 - 1)
+    dN[1, 0] = 4 * L2 - 1  # dL2/dxi = 1
     # N3
-    dN[2, 1] = (2 * L3 - 1) + L3 * 2  # dL3/deta = 1
+    dN[2, 1] = 4 * L3 - 1  # dL3/deta = 1
     # N4
-    dN[3, 2] = (2 * L4 - 1) + L4 * 2  # dL4/dzeta = 1
+    dN[3, 2] = 4 * L4 - 1  # dL4/dzeta = 1
+
     # N5 = 4 L1 L2
-    dN[4, 0] = 4 * (-L2 + L1)
-    dN[4, 1] = -4 * L2
-    dN[4, 2] = -4 * L2
+    dN[4, 0] = 4 * (L1 - L2)  # d/dxi (L1*1 + L2*(-1))
+    dN[4, 1] = 4 * (-L2)  # d/deta (L1*0 + L2*(-1))
+    dN[4, 2] = 4 * (-L2)  # d/dzeta (L1*0 + L2*(-1))
+
     # N6 = 4 L2 L3
+    # dN6/dxi = 4 * ( (dL2/dxi)*L3 + (dL3/dxi)*L2 ) = 4 * ( 1*L3 + 0*L2 ) = 4*L3
     dN[5, 0] = 4 * L3
+    # dN6/deta = 4 * ( (dL2/deta)*L3 + (dL3/deta)*L2 ) = 4 * ( 0*L3 + 1*L2 ) = 4*L2
     dN[5, 1] = 4 * L2
+    # dN6/dzeta = 4 * ( (dL2/dzeta)*L3 + L2*(dL3/dzeta) ) = 4 * ( 0*L3 + L2*0 ) = 0 (already zero)
+
     # N7 = 4 L1 L3
-    dN[6, 0] = -4 * L3
-    dN[6, 1] = 4 * (L1 - L3)
-    dN[6, 2] = -4 * L3
+    dN[6, 0] = 4 * (-L3)  # d/dxi (L1*0 + L3*(-1))
+    dN[6, 1] = 4 * (L1 - L3)  # d/deta (L1*1 + L3*(-1))
+    dN[6, 2] = 4 * (-L3)  # d/dzeta (L1*0 + L3*(-1))
+
     # N8 = 4 L1 L4
-    dN[7, 0] = -4 * L4
-    dN[7, 1] = -4 * L4
-    dN[7, 2] = 4 * (L1 - L4)
+    dN[7, 0] = 4 * (-L4)  # d/dxi (L1*0 + L4*(-1))
+    dN[7, 1] = 4 * (-L4)  # d/deta (L1*0 + L4*(-1))
+    dN[7, 2] = 4 * (L1 - L4)  # d/dzeta (L1*1 + L4*(-1))
+
     # N9 = 4 L2 L4
-    dN[8, 0] = 4 * L4
-    dN[8, 2] = 4 * L2
+    dN[8, 0] = 4 * L4  # dN9/dxi = 4 * L4
+    # dN9/deta = 0 (already zero)
+    dN[8, 2] = 4 * L2  # dN9/dzeta = 4 * L2
+
     # N10 = 4 L3 L4
-    dN[9, 1] = 4 * L4
-    dN[9, 2] = 4 * L3
+    # dN10/dxi = 0 (already zero)
+    dN[9, 1] = 4 * L4  # dN10/deta = 4 * L4
+    dN[9, 2] = 4 * L3  # dN10/dzeta = 4 * L3
     return dN
+
+
+# --------------------------------------
+# Constants
+# --------------------------------------
+
+# Quadrature scheme constants for exact integration of quadratic geometry
+# 4-point symmetric rule (degree 2 exact)
+# Barycentric coordinates for quadrature points: L1, L2, L3, L4
+_QUAD_A: Final[float] = (5 + 3 * (5**0.5)) / 20
+_QUAD_B: Final[float] = (5 - (5**0.5)) / 20
+_QUAD_BARY_COORDS: Final[FloatArray] = np.array(
+    [
+        [_QUAD_A, _QUAD_B, _QUAD_B, _QUAD_B],
+        [_QUAD_B, _QUAD_A, _QUAD_B, _QUAD_B],
+        [_QUAD_B, _QUAD_B, _QUAD_A, _QUAD_B],
+        [_QUAD_B, _QUAD_B, _QUAD_B, _QUAD_A],
+    ],
+    dtype=DTYPE_FLOAT,
+)
+
+# Natural coordinates (xi, eta, zeta) for quadrature points, derived from barycentric (L2, L3, L4)
+TETRA_QUADRATURE_POINTS: Final[FloatArray] = _QUAD_BARY_COORDS[:, 1:4]
+TETRA_QUADRATURE_WEIGHTS: Final[FloatArray] = np.array(
+    [0.25, 0.25, 0.25, 0.25], dtype=DTYPE_FLOAT
+)
+
+# Precompute shape functions and their derivatives at quadrature points
+# to avoid recomputing them for every element.
+_PRECOMPUTED_SHAPE_FUNCTIONS_AT_QUAD_POINTS_LIST: list[FloatArray] = [
+    _compute_tetrahedral_shape_functions(xi, eta, zeta)
+    for xi, eta, zeta in TETRA_QUADRATURE_POINTS
+]
+_PRECOMPUTED_SHAPE_FUNCTIONS_AT_QUAD_POINTS: Final[FloatArray] = np.array(
+    _PRECOMPUTED_SHAPE_FUNCTIONS_AT_QUAD_POINTS_LIST, dtype=DTYPE_FLOAT
+)
+
+_PRECOMPUTED_DSHAPE_DXI_AT_QUAD_POINTS_LIST: list[FloatArray] = [
+    _compute_tetrahedral_shape_derivatives(xi, eta, zeta)
+    for xi, eta, zeta in TETRA_QUADRATURE_POINTS
+]
+_PRECOMPUTED_DSHAPE_DXI_AT_QUAD_POINTS: Final[FloatArray] = np.array(
+    _PRECOMPUTED_DSHAPE_DXI_AT_QUAD_POINTS_LIST, dtype=DTYPE_FLOAT
+)
 
 
 # --------------------------------------
 # Jacobian
 # --------------------------------------
-def jacobian(coords: FloatArray, xi: float, eta: float, zeta: float) -> FloatArray:
+def jacobian_at_point(coords: FloatArray, dN_at_point: FloatArray) -> FloatArray:
     """
     Compute the (3,3) Jacobian matrix mapping natural to global coordinates.
 
+    This function is kept for potential standalone use, but for volume/centroid
+    computation, Jacobian calculation is integrated into the combined function.
+
     Args:
         coords:  (10,3) array of global node coordinates.
-        xi,eta,zeta: Natural coordinates.
+        dN_at_point: (10,3) array of shape function derivatives at the point.
 
     Returns:
         J:  (3,3) Jacobian matrix.
     """
-    dN = dshape_dxi(xi, eta, zeta)
-    J = dN.T @ coords
+    J = dN_at_point.T @ coords
     return J
 
 
 # --------------------------------------
 # Volume & Centroid
 # --------------------------------------
-def compute_quadratic_tet_volume(coords: FloatArray) -> float:
+def compute_quadratic_tetra_volume_and_centroid(
+    coords: FloatArray,
+) -> tuple[float, FloatArray]:
     """
-    Compute exact volume of a 10-node quadratic tetrahedron via Gaussian quadrature.
+    Compute exact volume and centroid of a 10-node quadratic tetrahedron
+    via Gaussian quadrature in a single loop, using precomputed shape functions
+    and their derivatives at quadrature points.
 
     Args:
         coords: (10,3) global node coordinates.
 
     Returns:
         vol: Exact volume.
-    """
-    pts, w = TETRA_QUADRATURE_POINTS, TETRA_QUADRATURE_WEIGHTS
-    vol = 0.0
-    for (xi, eta, zeta), wi in zip(pts, w):
-        J = jacobian(coords, xi, eta, zeta)
-        detJ = np.linalg.det(J)
-        assert detJ > 0
-        vol += wi * detJ
-    return vol
-
-
-def compute_quadratic_tet_centroid(coords):
-    """
-    Compute centroid of a 10-node quadratic tetrahedron via Gaussian quadrature.
-
-    Args:
-        coords: (10,3) global node coordinates.
-
-    Returns:
         centroid: (3,) coordinates of centroid.
     """
-    pts, w = TETRA_QUADRATURE_POINTS, TETRA_QUADRATURE_WEIGHTS
-    V = compute_quadratic_tet_volume(coords)
-    centroid = np.zeros(3, dtype=DTYPE_FLOAT)
-    for (xi, eta, zeta), wi in zip(pts, w):
-        N = shape_functions(xi, eta, zeta)
-        x = N @ coords
-        J = jacobian(coords, xi, eta, zeta)
+    w = TETRA_QUADRATURE_WEIGHTS
+    vol = 0.0
+    centroid_numerator = np.zeros(3, dtype=DTYPE_FLOAT)
+
+    for i, wi in enumerate(w):
+        N_gp = _PRECOMPUTED_SHAPE_FUNCTIONS_AT_QUAD_POINTS[i]  # (10,)
+        dN_gp = _PRECOMPUTED_DSHAPE_DXI_AT_QUAD_POINTS[i]  # (10, 3)
+
+        J = dN_gp.T @ coords  # Jacobian matrix (3,10) @ (10,3) -> (3,3)
         detJ = np.linalg.det(J)
-        assert detJ > 0
-        centroid += wi * x * detJ
-    return centroid / V
+        if not detJ > 0:
+            raise ValueError(
+                f"Jacobian determinant is not positive ({detJ:.6e}) at quadrature point {i}. "
+                "Element may be distorted or incorrectly defined."
+            )
+        vol += wi * detJ
+
+        x_gp = N_gp @ coords  # Global coordinates of the current quadrature point
+        centroid_numerator += wi * x_gp * detJ
+
+    if abs(vol) < 1e-12:  # Check for effectively zero volume
+        # Return 0 volume and a zero vector for centroid if volume is negligible.
+        return 0.0, np.zeros(3, dtype=DTYPE_FLOAT)
+
+    centroid = centroid_numerator / vol
+    return vol, centroid
 
 
 # --------------------------------------
 # Linear volume & orientation
 # --------------------------------------
-def compute_linear_tet_volume_and_sign(corner_coords):
+def compute_linear_tetra_volume(corner_coords) -> float:
     """
     Compute linear tetrahedron volume and its sign using first 4 corner nodes.
 
@@ -201,23 +238,38 @@ def compute_linear_tet_volume_and_sign(corner_coords):
         V_lin: Linear tetra volume (signed/6).
         sign: +1 or -1 indicating orientation.
     """
-    X1, X2, X3, X4 = corner_coords
-    M = np.vstack([X2 - X1, X3 - X1, X4 - X1]).T
+    M = corner_coords[1:, :] - corner_coords[0, :]
     det = np.linalg.det(M)
     V_lin = det / 6.0
-    return V_lin, np.sign(V_lin)
+    return V_lin
 
 
 def analyze_quadratic_tetra(coords, density=1.0):
+    """
+    Analyze a 10-node quadratic tetrahedron element.
+
+    Performs an orientation check using the linear sub-element,
+    then computes the exact quadratic volume, centroid, and mass.
+
+    Args:
+        coords: (10,3) global node coordinates of the quadratic tetrahedron.
+        density: Material density (default is 1.0).
+
+    Returns:
+        A dictionary containing:
+            "volume_linear": Volume of the linear tet (corners only), for orientation.
+            "volume": Exact volume of the quadratic tetrahedron.
+            "centroid": (3,) coordinates of the centroid.
+            "mass": Mass of the element.
+    """
+
     # Orientation check
-    V_lin, sign = compute_linear_tet_volume_and_sign(coords[:4])
-    if sign <= 0:
+    V_lin = compute_linear_tetra_volume(coords[:4])
+    if V_lin <= 0:
         raise ValueError(f"Invalid element orientation: linear volume {V_lin:.6e} <= 0")
 
-    # Exact quadratic volume
-    V = compute_quadratic_tet_volume(coords)
-    # Centroid
-    C = compute_quadratic_tet_centroid(coords)
+    # Exact quadratic volume and centroid
+    V, C = compute_quadratic_tetra_volume_and_centroid(coords)
     # Mass
     mass = density * V
     return {"volume_linear": V_lin, "volume": V, "centroid": C, "mass": mass}
