@@ -38,16 +38,20 @@ def main():
     nid2idx = {nid: idx for idx, nid in enumerate(grid.keys())}
     xyz_mat = np.array([xyz for xyz in grid.values()])
 
-    vol_1st = 0.0
+    vol_1st_tmp = 0.0
+    cog_1st_tmp = np.zeros(3)
     for eid, verts in ctetra.items():
         indices = [nid2idx[nid] for nid in verts[:4]]
         coords = xyz_mat[indices, :]
         vectors = coords[1:, :] - coords[0, :]
         det_tmp = np.linalg.det(vectors)
         assert det_tmp > 0
-        vol_1st += det_tmp
-    vol_1st /= 6.0
+        cog_1st_tmp += det_tmp * np.mean(coords, axis=0)
+        vol_1st_tmp += det_tmp
+    vol_1st = vol_1st_tmp / 6.0
+    cog_1st = cog_1st_tmp / vol_1st_tmp
     print(volume, vol_1st, (vol_1st / volume - 1) * 100)
+    print(cog_1st)
 
 
 if __name__ == "__main__":
